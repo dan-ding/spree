@@ -172,10 +172,10 @@ module Spree
 
     # If true, causes the confirmation step to happen during the checkout process
     def confirmation_required?
-      if payments.empty? and Spree::Config[:always_include_confirm_step]
+      if payments.empty? && Spree::Config[:always_include_confirm_step]
         true
       else
-        payments.map(&:payment_method).compact.any?(&:payment_profiles_supported?)
+        payments.valid.map(&:payment_method).compact.any?(&:payment_profiles_supported?)
       end
     end
 
@@ -596,7 +596,7 @@ module Spree
         shipments.each { |shipment| shipment.cancel! }
 
         send_cancel_email
-        self.payment_state = 'credit_owed' unless shipped?
+        self.update_column(:payment_state, 'credit_owed') unless shipped?
       end
 
       def send_cancel_email
