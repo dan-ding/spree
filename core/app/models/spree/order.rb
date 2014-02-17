@@ -28,7 +28,7 @@ module Spree
 
     attr_accessible :line_items, :bill_address_attributes, :ship_address_attributes,
                     :payments_attributes, :ship_address, :bill_address, :currency,
-                    :line_items_attributes, :number, :email, :use_billing, 
+                    :line_items_attributes, :number, :email, :use_billing,
                     :special_instructions, :shipments_attributes, :coupon_code
 
     attr_reader :coupon_code
@@ -103,7 +103,7 @@ module Spree
     end
 
     def self.complete
-      where('completed_at IS NOT NULL')
+      where("#{quoted_table_name}.completed_at IS NOT NULL")
     end
 
     def self.incomplete
@@ -173,7 +173,11 @@ module Spree
     # If true, causes the confirmation step to happen during the checkout process
     def confirmation_required?
       Spree::Config[:always_include_confirm_step] ||
-        payments.valid.map(&:payment_method).compact.any?(&:payment_profiles_supported?)
+        payments.valid.map(&:payment_method).compact.any?(&:payment_profiles_supported?) ||
+        # Little hacky fix for #4117
+        # If this wasn't here, order would transition to address state on confirm failure
+        # because there would be no valid payments any more.
+        state == 'confirm'
     end
 
     # Indicates the number of items in the order
@@ -398,7 +402,7 @@ module Spree
     end
 
     def available_payment_methods
-      @available_payment_methods ||= PaymentMethod.available(:front_end)
+      @available_payment_methods ||= (PaymentMethod.available(:front_end) + PaymentMethod.available(:both)).uniq
     end
 
     def pending_payments
@@ -545,7 +549,7 @@ module Spree
     #
     # At some point the might need to force the order to transition from address
     # to delivery again so that proper updated shipments are created.
-    # e.g. customer goes back from payment step and changes order items 
+    # e.g. customer goes back from payment step and changes order items
     def ensure_updated_shipments
       if shipments.any?
         self.shipments.destroy_all
@@ -588,12 +592,13 @@ module Spree
       end
 
       def has_available_payment
-        return unless delivery?
+        return unless has_step?("delivery") && delivery?
         # errors.add(:base, :no_payment_methods_available) if available_payment_methods.empty?
       end
 
       def after_cancel
         shipments.each { |shipment| shipment.cancel! }
+        payments.completed.each { |payment| payment.credit! }
 
         send_cancel_email
         self.update_column(:payment_state, 'credit_owed') unless shipped?

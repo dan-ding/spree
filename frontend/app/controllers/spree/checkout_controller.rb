@@ -6,7 +6,7 @@ module Spree
   class CheckoutController < Spree::StoreController
     ssl_required
 
-    before_filter :load_order
+    before_filter :load_order_with_lock
 
     before_filter :ensure_order_not_completed
     before_filter :ensure_checkout_allowed
@@ -55,6 +55,13 @@ module Spree
             redirect_to checkout_state_path(@order.checkout_steps.first)
           end
         end
+
+        # Fix for #4117
+        # If confirmation of payment fails, redirect back to payment screen
+        if params[:state] == "confirm" && @order.payments.valid.empty?
+          flash.keep
+          redirect_to checkout_state_path("payment")
+        end
       end
 
       # Should be overriden if you have areas of your checkout that don't match
@@ -63,8 +70,8 @@ module Spree
         false
       end
 
-      def load_order
-        @order = current_order
+      def load_order_with_lock
+        @order = current_order(lock: true)
         redirect_to spree.cart_path and return unless @order
 
         if params[:state]

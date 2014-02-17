@@ -211,9 +211,10 @@ describe Spree::Order do
     end
 
     it "should freeze all adjustments" do
-      # Stub this method as it's called due to a callback
+      # Stub these methods as they're called due to a callback
       # and it's irrelevant to this test
       order.stub :has_available_shipment
+      order.stub :has_available_payment
       Spree::OrderMailer.stub_chain :confirm_email, :deliver
       adjustments = double
       order.stub :adjustments => adjustments
@@ -519,6 +520,14 @@ describe Spree::Order do
 
   context "#confirmation_required?" do
 
+    # Regression test for #4117
+    it "is required if the state is currently 'confirm'" do
+      order = Spree::Order.new
+      assert !order.confirmation_required?
+      order.state = 'confirm'
+      assert order.confirmation_required?
+    end
+
     context 'Spree::Config[:always_include_confirm_step] == true' do
 
       before do
@@ -659,6 +668,40 @@ describe Spree::Order do
       expect(order.state_changes).to be_empty
       order.state_changed('payment')
       expect(order.state_changes).to be_empty
+    end
+  end
+
+  # Regression test for #4199
+  context "#available_payment_methods" do
+    it "includes frontend payment methods" do
+      payment_method = Spree::PaymentMethod.create!({
+        :name => "Fake",
+        :active => true,
+        :display_on => "front_end",
+        :environment => Rails.env
+      })
+      expect(order.available_payment_methods).to include(payment_method)
+    end
+
+    it "includes 'both' payment methods" do
+      payment_method = Spree::PaymentMethod.create!({
+        :name => "Fake",
+        :active => true,
+        :display_on => "both",
+        :environment => Rails.env
+      })
+      expect(order.available_payment_methods).to include(payment_method)
+    end
+
+    it "does not include a payment method twice if display_on is blank" do
+      payment_method = Spree::PaymentMethod.create!({
+        :name => "Fake",
+        :active => true,
+        :display_on => "both",
+        :environment => Rails.env
+      })
+      expect(order.available_payment_methods.count).to eq(1)
+      expect(order.available_payment_methods).to include(payment_method)
     end
   end
 end
